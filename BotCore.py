@@ -70,10 +70,11 @@ def instantiate(Game):
 
     @bot.command(name="reveal", help="Places that card face up.")
     async def reveal(ctx, card):
+        global game
         sender = '<@!' + str(ctx.message.author.id) + '>'
         valid, info = game.valid("Reveal", sender)
         if valid:
-            message = game.revealCard(sender, card)
+            game, message = game.revealCard(sender, card)
             await ctx.send(message)
         else:
             await ctx.send(info)
@@ -97,6 +98,14 @@ def instantiate(Game):
         global game
         if game.gamePos != 0:
             game, message = game.block()
+            await ctx.send(message)
+
+    @bot.command(name="challenge", help="Challenges a player.")
+    async def challenge(ctx):
+        global game
+        sender = '<@!' + str(ctx.message.author.id) + '>'
+        if game.gamePos != 0:
+            game, message = game.challenge(sender)
             await ctx.send(message)
 
     @bot.command(name="table", help="Shows the current state in a friendly manner.")
