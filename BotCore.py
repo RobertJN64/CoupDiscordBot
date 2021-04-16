@@ -17,7 +17,11 @@ print("Running Bot Core script to connect Bot")
 def newGame():
     return BotGame.GameState()
 
-def instantiate(game):
+
+game = None
+def instantiate(Game):
+    global game
+    game = Game
     bot = commands.Bot(command_prefix='!', help_command=help_command)
 
     @bot.event
@@ -31,12 +35,13 @@ def instantiate(game):
 
     @bot.command(name="move", help="Plays a move. Try Duke/Assasin/Captain/Ambassador or Income/Aid/Tax/Steal/Assassinate/Exchange/Coup")
     async def move(ctx, moveID, move_target=None):
-        if game.gamePos == 1:
-            sender = '<@!' + str(ctx.message.author.id) + '>'
+        sender = '<@!' + str(ctx.message.author.id) + '>'
+        valid, info = game.valid("Turn", sender)
+        if valid:
             message = game.move(ctx, moveID, sender, str(move_target))
             await ctx.send(message)
         else:
-            await ctx.send("You can't do that right now.")
+            await ctx.send(info)
 
     @bot.command(name="gamehelp", help="Gives info about the game and commands.")
     async def gamehelp(ctx):
@@ -48,12 +53,14 @@ def instantiate(game):
 
     @bot.command(name="join", help="Add yourself to the game!")
     async def join(ctx):
-        if game.gamePos == 0:
-            game.registerPlayer('<@!' + str(ctx.message.author.id) + '>')
+        sender = '<@!' + str(ctx.message.author.id) + '>'
+        valid, info = game.valid("join", sender)
+        if valid:
+            game.registerPlayer(sender)
             await ctx.message.author.send(game.getCards('<@!' + str(ctx.message.author.id) + '>'))
             await ctx.send("Player joined!")
         else:
-            await ctx.send("Game already started.")
+            await ctx.send(info)
 
     @bot.command(name="cards", help="Returns cards in your hand")
     async def dm(ctx):
@@ -63,19 +70,46 @@ def instantiate(game):
 
     @bot.command(name="reveal", help="Places that card face up.")
     async def reveal(ctx, card):
-        if game.gamePos == 2:
-            message = game.revealCard('<@!' + str(ctx.message.author.id) + '>', card)
+        sender = '<@!' + str(ctx.message.author.id) + '>'
+        valid, info = game.valid("Reveal", sender)
+        if valid:
+            message = game.revealCard(sender, card)
             await ctx.send(message)
         else:
-            await ctx.send("You can't do that right now.")
+            await ctx.send(info)
 
     @bot.command(name="start", help="Starts a game.")
     async def start(ctx):
-        if game.gamePos == 0:
-            game.gamePos = 1
-            await ctx.send("Started game!")
+        sender = '<@!' + str(ctx.message.author.id) + '>'
+        valid, info = game.valid("Start", sender)
+        if valid:
+            if len(game.playerList) > 0: # TODO - number of players in a game
+                game.gamePos = 1
+                game.nextPlayer = game.playerList[0].id
+                await ctx.send("Started game! Next player: " + str(game.playerList[0].id))
+            else:
+                await ctx.send("Not enough players.")
         else:
-            await ctx.send("Game already running.")
+            await ctx.send(info)
+
+    @bot.command(name="block", help="Blocks last move.")
+    async def block(ctx):
+        global game
+        if game.gamePos != 0:
+            game, message = game.block()
+            await ctx.send(message)
+
+    @bot.command(name="table", help="Shows the current state in a friendly manner.")
+    async def table(ctx):
+        message = game.showTable()
+        for m in message:
+            await ctx.send(m)
+
+    @bot.command(name="hardreset", help="Hard resets the current game state. DO NOT RUN DURING GAME")
+    async def hardreset(ctx):
+        global game
+        game = BotGame.GameState()
+        await ctx.send("Game state reset.")
 
     class Actions(commands.Cog):
         """Alternatives to !move"""
@@ -90,6 +124,10 @@ def instantiate(game):
         @commands.command(name="Aid", help="Aid (2 coins)")
         async def aid(self, ctx):
             await move(ctx, "Aid", None)
+
+        @commands.command(name="Coup", help="Coup (7 Coins -> Lose influence)")
+        async def coup(self, ctx):
+            await move(ctx, "Coup", None)
 
         @commands.command(name="Tax", help="Tax (3 coins)")
         async def tax(self, ctx):
