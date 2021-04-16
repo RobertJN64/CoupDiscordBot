@@ -17,31 +17,13 @@ print("Running Bot Core script to connect Bot")
 def newGame():
     return BotGame.GameState()
 
-
-game = None
-def instantiate(Game):
-    global game
-    game = Game
+def instantiate(game):
     bot = commands.Bot(command_prefix='!', help_command=help_command)
 
+    #region Simple Events
     @bot.event
     async def on_ready():
         print(f'{bot.user} has connected to Discord!')
-
-    @bot.command(name="debug", help="Dumps current game state. DO NOT RUN DURING GAME")
-    async def debug(ctx, unsafe=False):
-        message = game.debug(unsafe=unsafe)
-        await ctx.send(message)
-
-    @bot.command(name="move", help="Plays a move. Try Duke/Assasin/Captain/Ambassador or Income/Aid/Tax/Steal/Assassinate/Exchange/Coup")
-    async def move(ctx, moveID, move_target=None):
-        sender = '<@!' + str(ctx.message.author.id) + '>'
-        valid, info = game.valid("Turn", sender)
-        if valid:
-            message = game.move(ctx, moveID, sender, str(move_target))
-            await ctx.send(message)
-        else:
-            await ctx.send(info)
 
     @bot.command(name="gamehelp", help="Gives info about the game and commands.")
     async def gamehelp(ctx):
@@ -50,6 +32,34 @@ def instantiate(Game):
         message += "Try characters like Duke or Captain" + '\n'
         message += "Or use moves like Income and Aid"
         await ctx.send(message)
+    #endregion
+
+    @bot.command(name="debug", help="Dumps current game state. DO NOT RUN DURING GAME")
+    async def debug(ctx, unsafe=False):
+        message = game.debug(unsafe=unsafe)
+        await ctx.send(message)
+
+    @bot.command(name="state", help="Repeats last state message sent.")
+    async def state(ctx):
+        message = game.advanceState(False)
+        await ctx.send(message)
+
+    @bot.command(name="force", help="Sets an attribute to a new value. DO NOT RUN DURING GAME")
+    async def force(ctx, player, attribute, value):
+        message = game.force(player, attribute, value)
+        await ctx.send(message)
+
+    @bot.command(name="move", help="Plays a move. Try Duke/Assasin/Captain/Ambassador or Income/Aid/Tax/Steal/Assassinate/Exchange/Coup")
+    async def move(ctx, moveID, move_target=None):
+        sender = '<@!' + str(ctx.message.author.id) + '>'
+        valid, info = game.valid("Turn", sender)
+        if valid:
+            message = game.move(moveID, sender, str(move_target))
+            await ctx.send(message.message)
+            if message.sendDM:
+                await ctx.message.author.send(message.DM)
+        else:
+            await ctx.send(info)
 
     @bot.command(name="join", help="Add yourself to the game!")
     async def join(ctx):
@@ -57,7 +67,7 @@ def instantiate(Game):
         valid, info = game.valid("join", sender)
         if valid:
             game.registerPlayer(sender)
-            await ctx.message.author.send(game.getCards('<@!' + str(ctx.message.author.id) + '>'))
+            await ctx.message.author.send("Starting cards: " + game.getCards('<@!' + str(ctx.message.author.id) + '>'))
             await ctx.send("Player joined!")
         else:
             await ctx.send(info)
@@ -70,12 +80,22 @@ def instantiate(Game):
 
     @bot.command(name="reveal", help="Places that card face up.")
     async def reveal(ctx, card):
-        global game
         sender = '<@!' + str(ctx.message.author.id) + '>'
         valid, info = game.valid("Reveal", sender)
         if valid:
-            game, message = game.revealCard(sender, card)
-            await ctx.send(message)
+            message = game.revealCard(sender, card)
+            await ctx.send(message.message)
+            if message.sendDM:
+                await ctx.message.author.send(message.DM)
+        else:
+            await ctx.send(info)
+
+    @bot.command(name="discard", help="Discards cards after card exchange. Run in DM.")
+    async def discard(ctx, carda, cardb):
+        sender = '<@!' + str(ctx.message.author.id) + '>'
+        valid, info = game.valid("Waiting", sender)
+        if valid:
+            game.discard(sender, [carda, cardb])
         else:
             await ctx.send(info)
 
@@ -95,18 +115,20 @@ def instantiate(Game):
 
     @bot.command(name="block", help="Blocks last move.")
     async def block(ctx):
-        global game
         if game.gamePos != 0:
-            game, message = game.block()
-            await ctx.send(message)
+            message = game.block()
+            await ctx.send(message.message)
+            if message.sendDM:
+                await ctx.message.author.send(message.DM)
 
     @bot.command(name="challenge", help="Challenges a player.")
     async def challenge(ctx):
-        global game
         sender = '<@!' + str(ctx.message.author.id) + '>'
         if game.gamePos != 0:
-            game, message = game.challenge(sender)
-            await ctx.send(message)
+            message = game.challenge(sender)
+            await ctx.send(message.message)
+            if message.sendDM:
+                await ctx.message.author.send(message.DM)
 
     @bot.command(name="table", help="Shows the current state in a friendly manner.")
     async def table(ctx):
@@ -116,8 +138,7 @@ def instantiate(Game):
 
     @bot.command(name="hardreset", help="Hard resets the current game state. DO NOT RUN DURING GAME")
     async def hardreset(ctx):
-        global game
-        game = BotGame.GameState()
+        game.__init__()
         await ctx.send("Game state reset.")
 
     class Actions(commands.Cog):

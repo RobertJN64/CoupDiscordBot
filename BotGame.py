@@ -5,9 +5,7 @@ import copy
 #CONFIG
 config_enforceturns = True
 
-
-lastGameState = None
-gameStates = ["Start", "Turn", "Reveal"]
+gameStates = ["Start", "Turn", "Reveal", "Waiting", "End"]
 
 #region GameFunctions
 #region Global Functions
@@ -62,12 +60,13 @@ def Assassinate(gameState, player):
     gameState.expectedRevealList = []
     gameState.gamePos = 2  # Reveal
     gameState.nextPlayer = recPlayer.id
-    return True, "You were assassinate. Reveal a card."
+    return True, "You were assassinated. Reveal a card."
 
 def Exchange(gameState, player):
-    #TODO - exchange
-    print("TODO - Exchange")
-    return True, ""
+    player.cards += gameState.draw(2)
+    gameState.nextPlayer = player
+    gameState.gamePos = 3
+    return True, "Check DM to discard cards."
 #endregion
 #endregion
 #region Classes
@@ -123,6 +122,7 @@ class Player:
         self.cards = gameState.draw(2)
         self.revealedCards = []
         self.coins = 2 #you start with 2 coins
+        self.alive = True
 
     def debug(self, unsafe=False):
         outstr = ""
@@ -131,6 +131,7 @@ class Player:
             outstr += "Player cards: " + self.cardString() + '\n'
         outstr += "Player face up cards: " + self.revealCardString() + '\n'
         outstr += "Player has " + str(self.coins) + " coins."
+        outstr += "Player alive: " + str(self.alive) + '\n'
         return outstr
 
     def cardString(self):
@@ -144,35 +145,19 @@ class Player:
         for cardid in self.revealedCards:
             outstr += cardid.name + " "
         return outstr
-
-class GameState:
+    
+class Response:
+    def __init__(self, message, sendDM=False, DM=""):
+        self.message = message
+        self.sendDM = sendDM,
+        self.DM = DM
+        
+class playerState:
     def __init__(self):
-        print("Creating new game...")
-        self.createtime = datetime.datetime.now().strftime("%I:%M %p")
-        self.moveTarget = None
-        self.movePlayer = None
         self.playerList = []
-        self.gamePos = 0
-        self.junk = False
-        self.lastmove = None
-        self.turnPos = 0
-        self.nextPlayer = None
-        self.expectedRevealList = []
-        self.challenger = None
-        self.deck = []
-        for cardID in cards:
-            self.deck.append(copy.deepcopy(cards[cardID])) #3 of each card
-            self.deck.append(copy.deepcopy(cards[cardID]))
-            self.deck.append(copy.deepcopy(cards[cardID]))
 
-    def nextTurn(self):
-        self.turnPos += 1
-        if self.turnPos >= len(self.playerList):
-           self.turnPos = 0
-        self.nextPlayer = self.playerList[self.turnPos].id
-
-    def registerPlayer(self, name):
-        self.playerList.append(Player(self,name))
+    def addPlayer(self, gameState, name):
+        self.playerList.append(Player(gameState, name))
 
     def getPlayer(self, name):
         for player in self.playerList:
@@ -180,91 +165,66 @@ class GameState:
                 return player
         return None
 
+lastPlayerState = playerState()
+class GameState:
+    def __init__(self):
+        print("Creating new game...")
+        self.createtime = datetime.datetime.now().strftime("%I:%M %p") #helps with keeping track of objects
+        self.moveTarget = None #reciever of the move (ie assassin, steal)
+        self.movePlayer = None #creator of the move
+        self.players = playerState() #handles player list + player cards + coins
+        self.gamePos = 0 #current state of game
+        self.junk = False #param to set by functions that don't need it
+        self.lastmove = None #last action done by player ie: tax / block / challenge
+        self.turnPos = 0 #keeps track of whose turn it is
+        self.nextPlayer = None #next person to complete an action
+        self.expectedRevealList = [] #valid cards to reveal
+        self.challenger = None #person who intiated a challenge
+        self.deck = [] #stores cards not in player hands
+        for cardID in cards:
+            self.deck.append(copy.deepcopy(cards[cardID])) #3 of each card
+            self.deck.append(copy.deepcopy(cards[cardID]))
+            self.deck.append(copy.deepcopy(cards[cardID]))
+
     def debug(self, unsafe=False):
-        global lastGameState
+        global lastPlayerState
         print("Debug called. Dumping state")
         outstr = "------" + '\n'
-        outstr += str(self) + '\n'
-        outstr += "Last state: " + str(lastGameState) + '\n'
+        outstr += "Main obj: " + str(self) + '\n'
+        outstr += "Player obj: " + str(self.nextPlayer) + '\n'
+        outstr += "Last player state obj: " + str(lastPlayerState) + '\n'
         outstr += "Create time: " + str(self.createtime) + '\n'
         outstr += "Game state: " + gameStates[self.gamePos] + '\n'
+        outstr += "Last move: " + str(self.lastmove) + '\n'
         outstr += "Last move creator: " + str(self.movePlayer) + '\n'
         outstr += "Last move target: " + str(self.moveTarget) + '\n'
-        outstr += "Last move: " + str(self.lastmove) + '\n'
         outstr += "Next player: " + str(self.nextPlayer) + '\n'
         outstr += "Turn Pos: " + str(self.turnPos) + '\n'
         outstr += "Challenger: " + str(self.challenger) + '\n'
+        outstr += "Deck length: " + str(len(self.deck))
         outstr += "Expected reveal list: "
         for cardID in self.expectedRevealList:
             outstr += cardID.name + ", "
         outstr += '\n'
         outstr += "Player data: " + '\n'
-        for player in self.playerList:
+        for player in self.players.playerList:
             outstr += "++++++" + '\n'
             outstr += player.debug(unsafe=unsafe) + '\n'
             outstr += "++++++" + '\n'
         outstr += "-----"
         print(outstr)
         return outstr
+    
+    def registerPlayer(self, name):
+        self.players.addPlayer(self, name)
+
+    def getPlayer(self, name):
+        return self.players.getPlayer(name)
 
     def draw(self, count):
         out = []
         for i in range(0, count):
             out.append(self.deck.pop(random.randint(0, len(self.deck) - 1)))
-        return out
-
-    def valid(self, action, sender):
-        if action == "join":
-            for player in self.playerList:
-                if player.id == sender:
-                    return False, "Already in game."
-            action = "Start"
-        if action == "Start" and self.gamePos != 0:
-            return False, "Game has started."
-        if self.gamePos != 0 and sender != self.nextPlayer and config_enforceturns:
-            return False, "Waiting for " + self.nextPlayer + " to play."
-        if action == gameStates[self.gamePos]:
-            return True, ""
-        elif self.gamePos == 0:
-            return False, "Game has not started."
-        elif self.gamePos == 2:
-            return False, "Waiting for a player to reveal a card."
-        elif self.gamePos == 1:
-            return False, "Waiting for a player to take their turn."
-        else:
-            return False, "Invalid action at this time."
-
-    def move(self, ctx, moveID, sender, move_target):
-        global lastGameState
-        self.movePlayer = sender
-        self.moveTarget = move_target
-
-        if moveID not in moves and (moveID not in characters or len(characters[moveID].moveList) == 0 or len(characters[moveID].moveList) > 1):
-            return "Move not found or character has no moves. Try again."
-
-        if moveID in characters:
-            moveID = characters[moveID].moveList[0]
-        else:
-            moveID = moves[moveID]
-
-        player = self.getPlayer(self.movePlayer)
-        if player is None:
-            return "Looks like you aren't in the game."
-        if player.coins > 10 and moveID.name != "Coup":
-            return "You have more than 10 coins, you need to coup!"
-
-        self.lastmove = moveID.name
-        lastGameState = copy.deepcopy(self)
-        success, message = moveID.run(self, player)
-        if not success:
-            return message
-
-        self.nextTurn()
-
-        out = "Move {" + moveID.name + "} executed successfully! Next player: " + self.nextPlayer
-        if message != '':
-            out += "\n" + message
-
         return out
 
     def getCards(self, name):
@@ -273,11 +233,133 @@ class GameState:
             return "Error. You are not in the current game."
         return player.cardString()
 
+    def checkWin(self):
+        winner = None
+        deadplayers = 0
+        for player in self.players.playerList:
+            if len(player.cards) == 0:
+                player.alive = False
+                deadplayers += 1
+            else:
+                winner = player.id
+
+        if deadplayers == len(self.players.playerList) - 1:
+            return True, winner
+        else:
+            return False, None
+
+    def nextTurn(self):
+        self.turnPos += 1
+        if self.turnPos >= len(self.players.playerList):
+           self.turnPos = 0
+        self.nextPlayer = self.players.playerList[self.turnPos].id
+        if not self.players.playerList[self.turnPos].alive:
+            self.nextTurn()
+
+    def valid(self, action, sender): #gives descriptive error messages
+        if action == "join":
+            for player in self.players.playerList:
+                if player.id == sender:
+                    return False, "Already in game." #First we check if a player is already in game
+            action = "Start"
+
+        if action == "Start" and self.gamePos != 0: #Are they trying to join and has game started?
+            return False, "Game has already started."
+
+        if self.gamePos != 0 and sender != self.nextPlayer and config_enforceturns:
+            return False, "Waiting for " + self.nextPlayer + " to play." #It isn't their turn
+
+        if action == gameStates[self.gamePos]: #ok, everything looks good
+            return True, ""
+
+        elif self.gamePos == 0:
+            return False, "Game has not started." #trying to play but game is has not started
+
+        elif self.gamePos == 1:
+            return False, "Waiting for a player to take their turn." #trying to reveal a card during a turn
+
+        elif self.gamePos == 2:
+            return False, "Waiting for a player to reveal a card." #trying to complete turn during a reveal card
+
+        elif self.gamePos == 3:
+            return False, "A player is in the middle of their turn." #during ambassador exchange
+
+        elif self.gamePos == 4:
+            return False, "The game is over."
+
+        else:
+            return False, "Invalid action at this time."
+
+    def advanceGameState(self, nextTurn = True):
+        win, player =  self.checkWin()
+        if not win:
+            if self.gamePos == 0:
+                return Response("Game has not started, so this event shouldn't have happened.")
+            if self.gamePos == 1:
+                if self.lastmove == "challenge":
+                    return Response("Challenge finished. Next player: " + self.nextPlayer)
+                if self.lastmove == "block":
+                    return Response("Block successful. Next player: " + self.nextPlayer)
+                if nextTurn:
+                    self.nextTurn()
+                if self.lastmove == "Exchange":
+                    return Response("Move {" + self.lastmove + "} executed successfully! DM Sent with new cards. Discard in DM. Game will resume shortly.", sendDM=True,
+                                    DM="You drew 2 cards and now have: " + self.getPlayer(self.movePlayer).cardString() + ". Discard 2.")
+                else:
+                    return Response("Move {" + self.lastmove + "} executed successfully! Next player: " + self.nextPlayer)
+
+            if self.gamePos == 2:
+                return Response(self.nextPlayer + " reveal a card.")
+
+            if self.gamePos == 3:
+                return Response("Waiting for a player to take finish their turn.")
+
+            if self.gamePos == 4:
+                return Response("The game is over.")
+        else:
+            return Response("Game over! " + player + " won!")
+
+    def move(self, moveID, sender, move_target):
+        global lastPlayerState
+        self.movePlayer = sender
+        self.moveTarget = move_target
+
+        #region verify move
+        if moveID not in moves and (moveID not in characters or len(characters[moveID].moveList) == 0 or len(characters[moveID].moveList) > 1):
+            return Response("Move not found or character has no moves. Try again.")
+
+        if moveID in characters:
+            moveID = characters[moveID].moveList[0]
+        else:
+            moveID = moves[moveID]
+
+        player = self.getPlayer(self.movePlayer)
+        if player is None:
+            return Response("Looks like you aren't in the game.")
+        if player.coins > 10 and moveID.name != "Coup":
+            return Response("You have more than 10 coins, you need to coup!")
+
+        #endregion
+
+        self.lastmove = moveID.name
+        lastPlayerState = copy.deepcopy(self.players)
+        success, message = moveID.run(self, player)
+        if not success:
+            return Response(message)
+
+        response = self.advanceGameState()
+        if message != "":
+            response.message = message + response.message
+
+        return response
+
     def revealCard(self, name, cardID):
-        global lastGameState
+        global lastPlayerState
+
+        #region Check if card is valid
         player = self.getPlayer(name)
         if player is None:
-            return self, "Error. You are not in the current game."
+            return Response("Error. You are not in the current game.")
 
         if cardID in player.cardString():
             loc = 0
@@ -288,58 +370,80 @@ class GameState:
             player.cards.pop(loc)
 
         else:
-            return self, "Error."
+            return Response("Error.")
+        #endregion
 
         for cardInfo in self.expectedRevealList:
             if cardInfo.name == cardID:
-                state = lastGameState
-                lastGameState = copy.deepcopy(self)
-                state.gamePos = 2
-                state.expectedRevealList = []
-                # TODO - drawing a new card
-                return state, "Player reveals a " + str(cardID) + ". This is valid, so " + self.challenger + " must reveal a card now."
-        self.gamePos = 1
-        self.nextPlayer = self.playerList[self.turnPos].id
-        return self, ("Player reveals a " + str(cardID))
+                self.revertstate()
+                self.gamePos = 2
+                self.expectedRevealList = []
+                self.players.getPlayer(name).cards += self.draw(1)
+                return Response("Player reveals a " + str(cardID) + ". This is valid, so " + self.challenger + " must reveal a card now.",
+                                sendDM=True, DM="You drew 1 card and now have: " + self.getPlayer(self.movePlayer).cardString())
 
-    def revertstate(self, message, lastmove, revealList, nextPlayer, challenger=None, revealCard=False):
-        global lastGameState
-        temp = copy.deepcopy(lastGameState)
-        lastGameState = copy.deepcopy(self)
-        temp.lastmove = lastmove
-        temp.expectedRevealList = revealList
-        temp.challenger = challenger
-        temp.nextPlayer = nextPlayer
-        temp.turnPos = self.turnPos
-        if revealCard:
-            temp.gamePos = 2
-        return temp, message
+        self.gamePos = 1
+        self.nextPlayer = self.players.playerList[self.turnPos].id
+        return self.advanceGameState(nextTurn=False)
+
+    def discard(self, player, cardList):
+        player = self.getPlayer(player)
+        if player is None:
+            return Response("Error. You are not in the current game.")
+
+        for card in cardList:
+            if card in player.cardString():
+                loc = 0
+                for loc in range(0, len(player.cards)):
+                    if player.cards[loc].name == card:
+                        break
+                player.revealedCards.append(player.cards[loc])
+                player.cards.pop(loc)
+
+        return Response("Cards discarded.")
+
+    def revertstate(self):
+        global lastPlayerState
+        temp = copy.deepcopy(lastPlayerState)
+        lastPlayerState = copy.deepcopy(self.players)
+        self.players = copy.deepcopy(temp)
 
     def block(self):
         if self.lastmove is not None and len(moves[self.lastmove].blocklist) > 0:
             bcards = []
             for cardID in moves[self.lastmove].blocklist:
                 bcards.append(cards[cardID])
-            return self.revertstate("Move Blocked. Next player: " + self.nextPlayer, "block", bcards, self.nextPlayer)
+            self.expectedRevealList = bcards
+            self.lastmove = "block"
+            self.revertstate()
+            response = self.advanceGameState()
+            return response
         else:
-            return self, "Move can't be blocked"
+            return Response("Move can't be blocked.")
+
+    def challengeRevert(self, sender, message):
+        self.gamePos = 2
+        self.lastmove = "challenge"
+        self.challenger = sender
+        self.revertstate()
+        return Response(message)
 
     def challenge(self, sender):
-        global lastGameState
+        global lastPlayerState
         if self.lastmove == "block":
-            return self.revertstate("Block challenged, reveal a card.", "challenge", self.expectedRevealList, self.movePlayer, challenger=sender, revealCard=True)
+            return self.challengeRevert(sender, "Block challenged, reveal a card.")
         for character in characters:
             character = characters[character]
             print(character, character.moveList)
             for move in character.moveList:
                 if self.lastmove == move.name:
-                    return self.revertstate("Move challenged, reveal a card.", "challenge", [character], self.movePlayer, challenger=sender, revealCard=True)
-        else:
-            return self, "Move can't be challenged"
+                    return self.challengeRevert(sender, "Move challenged, reveal a card.")
+        return Response("Move can't be challenged.")
 
     def showTable(self):
+        #TODO - space out cards
         out = []
-        for player in self.playerList:
+        for player in self.players.playerList:
             out.append(player.id)
             s = ""
             for card in player.cards:
@@ -350,10 +454,41 @@ class GameState:
                 s += card.emoji
 
             out.append(s)
-            out.append("-")
+            out.append(str(player.coins) + " coins.")
         if self.gamePos != 0:
             out.append("Next player: " + self.nextPlayer)
         return out
 
-
-
+    def force(self, player, attribute, value):
+        if player == "gameState":
+            if attribute == "gamePos":
+                self.gamePos = int(value)
+            elif attribute == "moveTarget":
+                self.moveTarget = str(value)
+            elif attribute == "movePlayer":
+                self.movePlayer = str(value)
+            elif attribute == "lastMove":
+                self.lastmove = str(value)
+            elif attribute == "turnPos":
+                self.turnPos = int(value)
+            elif attribute == "nextPlayer":
+                self.nextPlayer = str(value)
+            elif attribute == "challenger":
+                self.challenger = str(value)
+            else:
+                return Response("Error, couldn't find attribute.")
+            return Response("Sucess!")
+        else:
+            player = self.getPlayer(player)
+            if player is None:
+                return  Response("Error, couldn't find player.")
+            else:
+                if attribute == "coins":
+                    player.coins = int(value)
+                elif attribute == "alive":
+                    player.alive = bool(value)
+                elif attribute == "draw":
+                    player.cards += self.draw(int(value))
+                else:
+                    return Response("Error, couldn't find attribute.")
+                return Response("Sucess!")
