@@ -29,7 +29,7 @@ def Coup(gameState, player):
     gameState.expectedRevealList = []
     gameState.gamePos = 2 #Reveal
     gameState.nextPlayer = recPlayer.id
-    return True, "You were couped. Reveal a card."
+    return True, "You were couped."
 
 #endregion
 #region CharacterFunctions
@@ -60,7 +60,7 @@ def Assassinate(gameState, player):
     gameState.expectedRevealList = []
     gameState.gamePos = 2  # Reveal
     gameState.nextPlayer = recPlayer.id
-    return True, "You were assassinated. Reveal a card."
+    return True, "You were assassinated."
 
 def Exchange(gameState, player):
     player.cards += gameState.draw(2)
@@ -117,8 +117,9 @@ cards = {"Duke": Card("Duke", "<:CoupDuke:832276533388640256>"),
 #endregion
 
 class Player:
-    def __init__(self, gameState, name):
+    def __init__(self, gameState, name, rawname):
         self.id = name
+        self.rawname = rawname
         self.cards = gameState.draw(2)
         self.revealedCards = []
         self.coins = 2 #you start with 2 coins
@@ -154,11 +155,12 @@ class Response:
         self.mainChat = MainChat
         
 class playerState:
-    def __init__(self):
+    def __init__(self, deck):
         self.playerList = []
+        self.deck = deck
 
-    def addPlayer(self, gameState, name):
-        self.playerList.append(Player(gameState, name))
+    def addPlayer(self, gameState, name, rawname):
+        self.playerList.append(Player(gameState, name, rawname))
 
     def getPlayer(self, name):
         for player in self.playerList:
@@ -166,14 +168,19 @@ class playerState:
                 return player
         return None
 
-lastPlayerState = playerState()
+lastPlayerState = playerState(deck=[])
 class GameState:
     def __init__(self):
         print("Creating new game...")
         self.createtime = datetime.datetime.now().strftime("%I:%M %p") #helps with keeping track of objects
         self.moveTarget = None #reciever of the move (ie assassin, steal)
         self.movePlayer = None #creator of the move
-        self.players = playerState() #handles player list + player cards + coins
+        deck = []
+        for cardID in cards:
+            deck.append(copy.deepcopy(cards[cardID]))  # 3 of each card
+            deck.append(copy.deepcopy(cards[cardID]))
+            deck.append(copy.deepcopy(cards[cardID]))
+        self.players = playerState(deck) #handles player list + player cards + coins
         self.gamePos = 0 #current state of game
         self.junk = False #param to set by functions that don't need it
         self.lastmove = None #last action done by player ie: tax / block / challenge
@@ -181,12 +188,8 @@ class GameState:
         self.nextPlayer = None #next person to complete an action
         self.expectedRevealList = [] #valid cards to reveal
         self.challenger = None #person who intiated a challenge
-        self.deck = [] #stores cards not in player hands
         self.assassinFlag = False
-        for cardID in cards:
-            self.deck.append(copy.deepcopy(cards[cardID])) #3 of each card
-            self.deck.append(copy.deepcopy(cards[cardID]))
-            self.deck.append(copy.deepcopy(cards[cardID]))
+
 
     def debug(self, unsafe=False):
         global lastPlayerState
@@ -203,7 +206,7 @@ class GameState:
         outstr += "Next player: " + str(self.nextPlayer) + '\n'
         outstr += "Turn Pos: " + str(self.turnPos) + '\n'
         outstr += "Challenger: " + str(self.challenger) + '\n'
-        outstr += "Deck length: " + str(len(self.deck)) + '\n'
+        outstr += "Deck length: " + str(len(self.players.deck)) + '\n'
         outstr += "Assassin Flag: " + str(self.assassinFlag) +'\n'
         outstr += "Expected reveal list: "
         for cardID in self.expectedRevealList:
@@ -218,8 +221,8 @@ class GameState:
         print(outstr)
         return outstr
     
-    def registerPlayer(self, name):
-        self.players.addPlayer(self, name)
+    def registerPlayer(self, name, rawname):
+        self.players.addPlayer(self, name, rawname)
 
     def getPlayer(self, name):
         return self.players.getPlayer(name)
@@ -227,7 +230,7 @@ class GameState:
     def draw(self, count):
         out = []
         for i in range(0, count):
-            out.append(self.deck.pop(random.randint(0, len(self.deck) - 1)))
+            out.append(self.players.deck.pop(random.randint(0, len(self.players.deck) - 1)))
         return out
 
     def getCards(self, name):
@@ -361,13 +364,15 @@ class GameState:
         player = self.getPlayer(name)
         if player is None:
             return Response("Error. You are not in the current game.")
-
         if cardID in player.cardString():
             loc = 0
             for loc in range(0, len(player.cards)):
                 if player.cards[loc].name == cardID:
                     break
-            player.revealedCards.append(player.cards[loc])
+            if cardID in self.expectedRevealList:
+                self.players.deck.append(player.cards[loc])
+            else:
+                player.revealedCards.append(player.cards[loc])
             player.cards.pop(loc)
 
         else:
@@ -376,19 +381,22 @@ class GameState:
 
         for cardInfo in self.expectedRevealList:
             if cardInfo.name == cardID:
+                tempstate = self.players #save players hand
                 self.revertstate()
+                if cardID != "Ambassador":
+                    self.getPlayer(name).cards = tempstate.getPlayer(name).cards #1 card
+                    self.getPlayer(name).cards += self.draw(1)
                 self.gamePos = 2
                 self.expectedRevealList = []
-                self.players.getPlayer(name).cards += self.draw(1)
-                return Response("Player reveals a " + str(cardID) + ". This is valid, so " + self.challenger + " must reveal a card now.",
+                self.nextPlayer = self.challenger
+                return Response("Player reveals a " + str(cardID) + ". This is valid, so " + self.nextPlayer + " must reveal a card now.",
                                 sendDM=True, DM="You drew 1 card and now have: " + self.getPlayer(self.movePlayer).cardString())
 
         if self.assassinFlag or len(self.players.getPlayer(name).cards) == 0:
             self.assassinFlag = False
         else:
             self.gamePos = 1
-            self.nextPlayer = self.players.playerList[self.turnPos].id
-        gs = self.advanceGameState(nextTurn=False)
+        gs = self.advanceGameState(nextTurn= self.lastmove != "block" and self.lastmove != "challenge")
         return gs
 
     def discard(self, player, cardList):
@@ -413,8 +421,7 @@ class GameState:
                 for loc in range(0, len(player.cards)):
                     if player.cards[loc].name == card:
                         break
-                player.revealedCards.append(player.cards[loc])
-                player.cards.pop(loc)
+                self.players.deck.append(player.cards.pop(loc))
 
         self.gamePos = 1
         gs = self.advanceGameState()
@@ -428,18 +435,24 @@ class GameState:
         lastPlayerState = copy.deepcopy(self.players)
         self.players = copy.deepcopy(temp)
 
-    def block(self):
-        if self.lastmove is not None and len(moves[self.lastmove].blocklist) > 0:
-            bcards = []
-            for cardID in moves[self.lastmove].blocklist:
-                bcards.append(cards[cardID])
-            self.expectedRevealList = bcards
-            self.lastmove = "block"
-            self.revertstate()
-            response = self.advanceGameState()
-            return response
+    def block(self, sender):
+        if self.movePlayer != sender:
+            if self.lastmove is not None and len(moves[self.lastmove].blocklist) > 0:
+                bcards = []
+                for cardID in moves[self.lastmove].blocklist:
+                    bcards.append(cards[cardID])
+                self.movePlayer = sender
+                self.expectedRevealList = bcards
+                self.lastmove = "block"
+                self.revertstate()
+                if self.gamePos == 2:
+                    self.gamePos = 1
+                response = self.advanceGameState()
+                return response
+            else:
+                return Response("Move can't be blocked.")
         else:
-            return Response("Move can't be blocked.")
+            return Response("You can't challenge yourself.")
 
     def challengeRevert(self, sender, message):
         self.gamePos = 2
@@ -451,32 +464,50 @@ class GameState:
 
     def challenge(self, sender):
         global lastPlayerState
-        if self.lastmove == "block":
-            return self.challengeRevert(sender, "Block challenged, reveal a card.")
-        for character in characters:
-            character = characters[character]
-            for move in character.moveList:
-                if self.lastmove == move.name:
-                    return self.challengeRevert(sender, "Move challenged, reveal a card.")
-        return Response("Move can't be challenged.")
+        if self.movePlayer != sender:
+            if self.lastmove == "block":
+                self.nextPlayer = self.movePlayer
+                return self.challengeRevert(sender, "Block challenged, " + self.movePlayer + " reveal a card.")
+            for character in characters:
+                character = characters[character]
+                for move in character.moveList:
+                    if self.lastmove == move.name:
+                        self.expectedRevealList = [character]
+                        return self.challengeRevert(sender, "Move challenged, " + self.movePlayer + " reveal a card.")
+            return Response("Move can't be challenged.")
+        else:
+            return Response("You can't challenge yourself!")
 
     def showTable(self):
-        #TODO - space out cards
         out = []
+        nextstr = ""
         for player in self.players.playerList:
-            out.append(player.id)
-            s = ""
+            counter = 0
+            nextstr += "᲼᲼" + player.rawname
+            counter += len(player.rawname)
+            for i in range(counter, 18):
+                nextstr += " "
+
+        out.append(nextstr)
+
+        nextstr = ""
+        for player in self.players.playerList:
             for card in player.cards:
                 card.junk = False
-                s += "<:CoupCardBack:832410965612953660>"
+                nextstr += "<:CoupCardBack:832410965612953660>"
 
             for card in player.revealedCards:
-                s += card.emoji
+                nextstr += card.emoji
 
-            out.append(s)
-            out.append(str(player.coins) + " coins.")
-        if self.gamePos != 0:
-            out.append("Next player: " + self.nextPlayer)
+            nextstr += "      "
+
+        out.append(nextstr)
+
+        nextstr = ""
+        for player in self.players.playerList:
+            nextstr += "᲼᲼᲼" + str(player.coins) + " <:CoupCoin:832411528165589003>" + "                "
+
+        out.append(nextstr)
         return out
 
     def force(self, player, attribute, value):

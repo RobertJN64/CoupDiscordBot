@@ -69,7 +69,7 @@ def instantiate(game):
         sender = '<@!' + str(ctx.message.author.id) + '>'
         valid, info = game.valid("join", sender)
         if valid:
-            game.registerPlayer(sender)
+            game.registerPlayer(sender, str(ctx.message.author.display_name))
             await ctx.message.author.send("Starting cards: " + game.getCards('<@!' + str(ctx.message.author.id) + '>'))
             await ctx.send("Player joined!")
         else:
@@ -126,8 +126,9 @@ def instantiate(game):
 
     @bot.command(name="block", help="Blocks last move.")
     async def block(ctx):
+        sender = '<@!' + str(ctx.message.author.id) + '>'
         if game.gamePos != 0 and game.gamePos != 3 and game.gamePos != 4:
-            message = game.block()
+            message = game.block(sender)
             await ctx.send(message.message)
             if message.sendDM:
                 await ctx.message.author.send(message.DM)
