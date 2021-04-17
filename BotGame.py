@@ -314,7 +314,7 @@ class GameState:
                 return Response(self.nextPlayer + " reveal a card.")
 
             if self.gamePos == 3:
-                return Response("Move {" + self.lastmove + "} in progress! DM Sent with new cards. Discard in DM. Game will resume shortly.",
+                return Response("Move {" + self.lastmove + "} in progress! DM sent with new cards. Discard in DM. Game will resume shortly.",
                     sendDM=True, DM="You drew 2 cards and now have: " + self.getPlayer(self.movePlayer).cardString() + ". Discard 2.")
 
             if self.gamePos == 4:
