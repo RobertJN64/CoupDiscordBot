@@ -115,7 +115,7 @@ cards = {"Duke": Card("Duke", "<:CoupDuke:832276533388640256>"),
          "Contessa": Card("Contessa", "<:CoupContessa:832276953415024730>"),
          "Ambassador": Card("Ambassador", "<:CoupAmbassador:832276533179318292>")}
 #endregion
-
+#region more classes
 class Player:
     def __init__(self, gameState, name, rawname):
         self.id = name
@@ -167,6 +167,7 @@ class playerState:
             if player.id == name and player.alive:
                 return player
         return None
+#endregion
 
 lastPlayerState = playerState(deck=[])
 class GameState:
@@ -189,7 +190,6 @@ class GameState:
         self.expectedRevealList = [] #valid cards to reveal
         self.challenger = None #person who intiated a challenge
         self.assassinFlag = 0
-
 
     def debug(self, unsafe=False):
         global lastPlayerState
@@ -346,10 +346,8 @@ class GameState:
         #endregion
 
         self.lastmove = moveID.name
-        if moveID.name == "Assassinate":
-            self.assassinFlag = 1
-        else:
-            self.assassinFlag = 0
+        self.assassinFlag = moveID.name == "Assassinate"
+
         lastPlayerState = copy.deepcopy(self.players)
         success, message = moveID.run(self, player)
         if not success:
@@ -397,15 +395,17 @@ class GameState:
                 self.gamePos = 2
                 self.expectedRevealList = []
                 self.nextPlayer = self.challenger
-                if self.assassinFlag == 1:
-                    self.assassinFlag = 2
+
                 return Response("Player reveals a " + str(cardID) + ". This is valid, so " + self.nextPlayer + " must reveal a card now.",
                                 sendDM=True, DM="You drew 1 card and now have: " + self.getPlayer(self.movePlayer).cardString())
 
-        if self.assassinFlag == 2 or len(self.players.getPlayer(name).cards) == 0:
-            self.assassinFlag = 0
+
+        if self.assassinFlag and len(self.players.getPlayer(name).cards) != 0 and name == self.challenger: #we revealed one
+            self.assassinFlag = False
+
         else:
             self.gamePos = 1
+
         gs = self.advanceGameState(nextTurn= self.lastmove != "block" and self.lastmove != "challenge")
         return gs
 
