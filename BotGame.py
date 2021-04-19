@@ -189,7 +189,8 @@ class GameState:
         self.nextPlayer = None #next person to complete an action
         self.expectedRevealList = [] #valid cards to reveal
         self.challenger = None #person who intiated a challenge
-        self.assassinFlag = 0
+        self.assassinFlag = False
+        self.assassinRec = None
 
     def debug(self, unsafe=False):
         global lastPlayerState
@@ -347,6 +348,8 @@ class GameState:
 
         self.lastmove = moveID.name
         self.assassinFlag = moveID.name == "Assassinate"
+        if self.assassinFlag:
+            self.assassinRec = self.moveTarget
 
         lastPlayerState = copy.deepcopy(self.players)
         success, message = moveID.run(self, player)
@@ -397,10 +400,10 @@ class GameState:
                 self.nextPlayer = self.challenger
 
                 return Response("Player reveals a " + str(cardID) + ". This is valid, so " + self.nextPlayer + " must reveal a card now.",
-                                sendDM=True, DM="You drew 1 card and now have: " + self.getPlayer(self.movePlayer).cardString())
+                                sendDM=True, DM="You drew 1 card and now have: " + self.getPlayer(name).cardString())
 
 
-        if self.assassinFlag and len(self.players.getPlayer(name).cards) != 0 and name == self.challenger: #we revealed one
+        if self.assassinFlag and len(self.players.getPlayer(name).cards) != 0 and name == self.assassinRec:
             self.assassinFlag = False
 
         else:
